@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	secman "github.com/aws/aws-sdk-go/service/secretsmanager"
 	"github.com/leelynne/sshcertifier/service"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
@@ -21,12 +23,18 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	pkBytes, err := ioutil.ReadFile("ca")
-	if err != nil {
-		panic(errors.Wrapf(err, "Couldn't read ca"))
+	certSecretID := "/sshcert/cert1"
+	sess := session.New(aws.NewConfig().WithRegion("us-west-2"))
+	secserv := secman.New(sess)
+	req := &secman.GetSecretValueInput{
+		SecretId: aws.String(certSecretID),
 	}
-	pk, err := ssh.ParsePrivateKey(pkBytes)
+	out, err := secserv.GetSecretValueWithContext(context.Background(), req)
+	if err != nil {
+		panic(errors.Wrapf(err, "Could get CA from secrets manager - '%s'", certSecretID))
+	}
+
+	pk, err := ssh.ParsePrivateKey(out.SecretBinary)
 	if err != nil {
 		panic(errors.Wrapf(err, "couldn't parse private ca key"))
 	}
