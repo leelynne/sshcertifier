@@ -1,15 +1,13 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/tls"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"time"
 
+	log "github.com/inconshreveable/log15"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 )
@@ -18,6 +16,7 @@ type SSHCertifier struct {
 	caPrivateKey  ssh.Signer
 	sshExtensions map[string]string
 	hsrv          *http.Server
+	logger        log.Logger
 }
 
 var DefaultSSHExtensions = map[string]string{
@@ -32,29 +31,33 @@ func New(caPrivateKey ssh.Signer, sshExtensions map[string]string) (*SSHCertifie
 	if sshExtensions == nil {
 		sshExtensions = DefaultSSHExtensions
 	}
+	logger := log.New(log.Ctx{"app": "sshcertifier"})
 	return &SSHCertifier{
 		caPrivateKey:  caPrivateKey,
 		sshExtensions: sshExtensions,
+		logger:        logger,
 	}, nil
 }
 
-func (sc *SSHCertifier) Run(ctx context.Context, tlsconf *tls.Config) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/sign", sc.HandleCertify)
+func (sc *SSHCertifier) Run(ctx context.Context, port int) error {
+	tlsconf, err := getTLSConfig()
+	if err != nil {
+		return err
+	}
 	sc.hsrv = &http.Server{
-		Addr:      ":8888",
-		Handler:   mux,
+		Addr:      fmt.Sprintf(":%d", port),
+		Handler:   sc.getMux(),
 		TLSConfig: tlsconf,
 	}
-
-	sc.hsrv.ListenAndServeTLS("", "")
+	sc.logger.Info("Starting sshcertifier", "port", port)
+	return sc.hsrv.ListenAndServeTLS("", "")
 }
 
 func (sc *SSHCertifier) Stop(ctx context.Context) {
 	sc.hsrv.Shutdown(ctx)
 }
 
-func (sc *SSHCertifier) createCert(user string, pubkeyRaw []byte, host string, principals []string, validTime time.Duration) ([]byte, error) {
+func (sc *SSHCertifier) createCert(user string, pubkeyRaw []byte, principals []string, validTime time.Duration) (*ssh.Certificate, error) {
 
 	pubkey, _, _, _, err := ssh.ParseAuthorizedKey(pubkeyRaw)
 	if err != nil {
@@ -82,13 +85,5 @@ func (sc *SSHCertifier) createCert(user string, pubkeyRaw []byte, host string, p
 		return nil, errors.Wrapf(err, "Couldn't sign cert")
 	}
 
-	buf := bytes.Buffer{}
-	buf.WriteString(fmt.Sprintf("%s ", cert.Type()))
-	buf.WriteString(base64.StdEncoding.EncodeToString(cert.Marshal()))
-	if host != "" {
-		buf.WriteString(fmt.Sprintf(" %s\n", host))
-	} else {
-		buf.WriteString("\n")
-	}
-	return buf.Bytes(), nil
+	return cert, nil
 }

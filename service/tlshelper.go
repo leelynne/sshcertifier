@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"bytes"
@@ -14,6 +14,25 @@ import (
 
 	"github.com/pkg/errors"
 )
+
+func getTLSConfig() (*tls.Config, error) {
+	cert, err := gencert()
+	if err != nil {
+		return nil, errors.Wrapf(err, "Could not generate local TLS cert")
+	}
+	return &tls.Config{
+		MinVersion:               tls.VersionTLS12,
+		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+		PreferServerCipherSuites: true,
+		/*CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+		},*/
+		Certificates: []tls.Certificate{cert},
+	}, nil
+}
 
 func gencert() (tls.Certificate, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
