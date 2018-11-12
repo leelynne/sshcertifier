@@ -67,7 +67,6 @@ func (sc *SSHCertifier) createCert(user string, pubkeyRaw []byte, principals []s
 	now := time.Now() //uint64(time.Now().UTC().Unix()),
 	until := now.Add(validTime)
 	cert := &ssh.Certificate{
-		Nonce:           []byte{},
 		Key:             pubkey,
 		Serial:          1,
 		CertType:        ssh.UserCert,

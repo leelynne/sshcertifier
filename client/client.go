@@ -14,6 +14,7 @@ import (
 
 	"github.com/leelynne/sshcertifier/api"
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/ssh"
 )
 
 type CertClient struct {
@@ -28,7 +29,7 @@ func New(certifierURL string, verifyCert bool, keypairName string, logger *log.L
 		Timeout: 2 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: verifyCert,
+				InsecureSkipVerify: !verifyCert,
 			},
 		},
 	}
@@ -56,6 +57,7 @@ func (cc *CertClient) NewUser() (*CertUser, error) {
 		sshDir:         sshDir,
 		pubkeyPath:     filepath.Join(sshDir, fmt.Sprintf("%s_ed25519.pub", cc.certPrefix)),
 		privatekeyPath: filepath.Join(sshDir, fmt.Sprintf("%s_ed25519", cc.certPrefix)),
+		certPath:       filepath.Join(sshDir, fmt.Sprintf("%s_ed25519-cert.pub", cc.certPrefix)),
 		logger:         cc.logger,
 	}, nil
 }
@@ -65,27 +67,47 @@ func (cc *CertClient) CertifyUser(cu *CertUser) error {
 	if err != nil {
 		return err
 	}
-	req := api.CertifyRequest{
+	certReq := api.CertifyRequest{
 		User:          cu.osUser.Username,
 		UserPublicKey: pubkey,
 	}
 	b := &bytes.Buffer{}
-	err = json.NewEncoder(b).Encode(req)
+	err = json.NewEncoder(b).Encode(certReq)
 	if err != nil {
 		return errors.Wrapf(err, "Failed to marshal certify user request")
 	}
-	resp, err := cc.hclient.Post(cc.certifierURL, "application/json", b)
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/certify/user", cc.certifierURL), b)
+	//req.Header.Set("Accept", "application/json")
+	if err != nil {
+		return errors.Wrapf(err, "Could not create new http request")
+	}
+
+	resp, err := cc.hclient.Do(req)
 	if err != nil {
 		return errors.Wrapf(err, "Failed to call certifier service")
 	}
+	if resp.StatusCode != http.StatusOK {
+		return errors.Errorf("Failed to call certifier service. Code: '%s' Error: '%s'", resp.StatusCode, resp.Status)
+	}
 	defer resp.Body.Close()
-	cert, err := ioutil.ReadAll(resp.Body)
+	certBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return errors.Wrapf(err, "Couldn't read ceritifier service response")
 	}
-	err = writeSSHCert(cu.sshDir, cert)
+
+	/*certResp := api.CertifyResponse{}
+	err = json.Unmarshal(respBytes, &certResp)
+	if err != nil {
+		return errors.Wrapf(err, "Couldn't unmarshal response")
+	}*/
+	err = writeSSHCert(cu.certPath, certBytes)
 	if err != nil {
 		return err
 	}
-	return nil
+	parsedCert, comment, _, _, err := ssh.ParseAuthorizedKey(certBytes)
+	cert, ok := parsedCert.(*ssh.Certificate)
+	if !ok {
+		return errors.Errorf("Could not parse certifcate out of result")
+	}
+	return cu.AddToAgent(cert, comment)
 }

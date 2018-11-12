@@ -1,13 +1,20 @@
 package client
 
 import (
+	"crypto/ecdsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"os/user"
+	"time"
 
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 type CertUser struct {
@@ -15,6 +22,7 @@ type CertUser struct {
 	sshDir         string
 	pubkeyPath     string
 	privatekeyPath string
+	certPath       string
 	logger         *log.Logger
 }
 
@@ -46,6 +54,57 @@ func (cu *CertUser) GetPubkey() (pubkey []byte, err error) {
 	}
 
 	return pubkey, nil
+}
+
+func (cu *CertUser) GetPrivateKey() (*ecdsa.PrivateKey, error) {
+	pkBytes, err := ioutil.ReadFile(cu.privatekeyPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "Could not read private key - '%s'", cu.privatekeyPath)
+	}
+
+	blk, _ := pem.Decode(pkBytes)
+	pk, err := x509.ParseECPrivateKey(blk.Bytes)
+	if err != nil {
+		return nil, errors.Wrapf(err, "Could not parse private key - '%s'", cu.privatekeyPath)
+	}
+	return pk, nil
+}
+
+func (cu *CertUser) AddToAgent(cert *ssh.Certificate, comment string) error {
+	sock, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
+	if err != nil {
+		return errors.Wrapf(err, "Couldn't connect to ssh agent socket")
+	}
+	cu.logger.Println(os.Getenv("SSH_AUTH_SOCK"))
+	ag := agent.NewClient(sock)
+
+	expiration := time.Unix(int64(cert.ValidBefore), 0)
+	lifetime := time.Until(expiration).Seconds()
+	// Need to install both the cert and the corresponding private key that was signed
+	pk, err := cu.GetPrivateKey()
+	if err != nil {
+		return err
+	}
+	certInfo := agent.AddedKey{
+		PrivateKey:   pk,
+		Certificate:  cert,
+		Comment:      comment,
+		LifetimeSecs: uint32(lifetime),
+	}
+
+	cu.logger.Println("Adding cert to agent")
+	if err := ag.Add(certInfo); err != nil {
+		return errors.Wrap(err, "Could not add ssh cert to ssh agent")
+	}
+
+	pkInfo := agent.AddedKey{
+		PrivateKey: pk,
+		Comment:    comment,
+	}
+	if err := ag.Add(pkInfo); err != nil {
+		return errors.Wrap(err, "Could not add private key to ssh agent")
+	}
+	return nil
 }
 
 func (cu *CertUser) getComment() string {

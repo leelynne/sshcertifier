@@ -7,4 +7,5 @@ type CertifyRequest struct {
 
 type CertifyResponse struct {
 	SignedCert []byte `json:"signed_cert"`
+	Comment    string `json:"comment"`
 }

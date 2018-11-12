@@ -3,7 +3,6 @@ module github.com/leelynne/sshcertifier
 require (
 	github.com/aws/aws-sdk-go v1.15.68
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/go-chi/chi v3.3.3+incompatible
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/inconshreveable/log15 v0.0.0-20180818164646-67afb5ed74ec
 	github.com/mattn/go-colorable v0.0.9 // indirect
@@ -14,6 +13,8 @@ require (
 	github.com/urfave/cli v1.20.0
 	golang.org/x/crypto v0.0.0-20181030102418-4d3f4d9ffa16
 	golang.org/x/net v0.0.0-20181102091132-c10e9556a7bc // indirect
+	golang.org/x/oauth2 v0.0.0-20181106182150-f42d05182288
+	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f // indirect
 	golang.org/x/sys v0.0.0-20181031143558-9b800f95dbbc // indirect
-	golang.org/x/text v0.3.0 // indirect
+	google.golang.org/appengine v1.3.0 // indirect
 )

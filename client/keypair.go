@@ -36,7 +36,8 @@ func makeSSHKeyPair(comment string) (pubkeyAuthKey, privateKeyPEM []byte, e erro
 		return nil, nil, errors.Wrapf(err, "Could not get public key from private key")
 	}
 
-	// Marhsal into authorized key file format
+	// Marshal into authorized key file format
+	// Like ssh.MarshalAuthorizedKey() but allows adding a comment
 	pubkeyBuf := &bytes.Buffer{}
 	pubkeyBuf.WriteString(pub.Type())
 	pubkeyBuf.WriteByte(' ')

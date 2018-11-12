@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -31,7 +30,6 @@ func (sc *SSHCertifier) loggerMiddleware(next http.Handler) http.Handler {
 }
 
 func (sc *SSHCertifier) handleCertifyUser(w http.ResponseWriter, r *http.Request) {
-	logger := getLogger(r.Context())
 	reqBytes, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Could not read request", 400)
@@ -48,23 +46,31 @@ func (sc *SSHCertifier) handleCertifyUser(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	buf := bytes.Buffer{}
-	buf.WriteString(fmt.Sprintf("%s ", cert.Type()))
-	buf.WriteString(base64.StdEncoding.EncodeToString(cert.Marshal()))
-	if certReq.Host != "" {
-		buf.WriteString(fmt.Sprintf(" %s\n", certReq.Host))
-	} else {
-		buf.WriteString("\n")
-	}
 
-	logger.Info("Issuing cert", "user", certReq.User, "serial", cert.Serial)
-	resp := api.CertifyResponse{
-		SignedCert: buf.Bytes(),
-	}
-	respBytes, err := json.Marshal(resp)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+	buf := bytes.Buffer{}
+	buf.WriteString(cert.Type())
+	buf.WriteByte(' ')
+	buf.WriteString(base64.StdEncoding.EncodeToString(cert.Marshal()))
+	buf.WriteByte(' ')
+	buf.WriteString(certReq.User)
+	buf.WriteByte('\n')
+
+	sc.logger.Info("Issuing cert", "user", certReq.User, "serial", cert.Serial)
+
+	acceptType := r.Header.Get("Accept")
+	var respBytes []byte
+	if acceptType == "application/json" {
+		resp := api.CertifyResponse{
+			SignedCert: buf.Bytes(),
+			Comment:    certReq.User,
+		}
+		respBytes, err = json.Marshal(resp)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	} else {
+		respBytes = buf.Bytes()
 	}
 
 	w.Write(respBytes)
