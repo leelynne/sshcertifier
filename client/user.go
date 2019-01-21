@@ -71,11 +71,11 @@ func (cu *CertUser) GetPrivateKey() (*ecdsa.PrivateKey, error) {
 }
 
 func (cu *CertUser) AddToAgent(cert *ssh.Certificate, comment string) error {
-	sock, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
+	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
+	sock, err := net.Dial("unix", sshAuthSock)
 	if err != nil {
-		return errors.Wrapf(err, "Couldn't connect to ssh agent socket")
+		return errors.Wrapf(err, "Not adding ssh key to ssh agent:Couldn't connect to ssh agent socket at '%s'", sshAuthSock)
 	}
-	cu.logger.Println(os.Getenv("SSH_AUTH_SOCK"))
 	ag := agent.NewClient(sock)
 
 	expiration := time.Unix(int64(cert.ValidBefore), 0)
@@ -92,9 +92,9 @@ func (cu *CertUser) AddToAgent(cert *ssh.Certificate, comment string) error {
 		LifetimeSecs: uint32(lifetime),
 	}
 
-	cu.logger.Println("Adding cert to agent")
+	cu.logger.Printf("Adding cert to agent at '%s'", sshAuthSock)
 	if err := ag.Add(certInfo); err != nil {
-		return errors.Wrap(err, "Could not add ssh cert to ssh agent")
+		return errors.Wrap(err, "Not adding ssh key to ssh agent")
 	}
 
 	pkInfo := agent.AddedKey{
@@ -102,7 +102,7 @@ func (cu *CertUser) AddToAgent(cert *ssh.Certificate, comment string) error {
 		Comment:    comment,
 	}
 	if err := ag.Add(pkInfo); err != nil {
-		return errors.Wrap(err, "Could not add private key to ssh agent")
+		return errors.Wrap(err, "Not adding ssh key to ssh agent")
 	}
 	return nil
 }

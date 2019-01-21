@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -22,14 +21,18 @@ func main() {
 			Usage: "Endpoint of sshceritifer service.",
 		},
 	}
-
 	app.Commands = []cli.Command{
 		{
 			Name:  "certify",
 			Usage: "add a task to the list",
 			Action: func(c *cli.Context) error {
 				logger := log.New(os.Stdout, "certclient", log.LstdFlags)
-				cc, err := client.New(c.String("endpoint"), false, "", logger)
+				cc, err := client.New(c.GlobalString("endpoint"), false, "", logger)
+				if err != nil {
+					return printErr(err)
+				}
+
+				code, err := cc.Auth()
 				if err != nil {
 					return printErr(err)
 				}
@@ -37,42 +40,12 @@ func main() {
 				if err != nil {
 					return printErr(err)
 				}
-				err = cc.CertifyUser(cu)
+				err = cc.CertifyUser(cu, code)
 				if err != nil {
 					return printErr(err)
 				}
 
 				return nil
-			},
-		},
-		{
-			Name:  "uploadca",
-			Usage: "Upload the ssh ca to AWS secret manager",
-			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:  "name, n",
-					Value: "/sshcert/cert1",
-					Usage: "Name of the key to use in secret manager",
-				},
-				cli.StringFlag{
-					Name:  "cafile, c",
-					Value: "ca",
-					Usage: "Name of the file with the SSH CA private key",
-				},
-				cli.StringFlag{
-					Name:  "kmskey, k",
-					Value: "sshca",
-					Usage: "Name of the KMS key used to encrypt the SSH CA",
-				},
-				cli.StringFlag{
-					Name:  "region, r",
-					Value: "us-west-2",
-					Usage: "AWS region to store the CA in",
-				},
-			},
-			Action: func(c *cli.Context) error {
-				return client.Storekey(context.Background(),
-					c.String("name"), c.String("kmskey"), c.String("cafile"))
 			},
 		},
 	}

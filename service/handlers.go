@@ -7,10 +7,11 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"time"
 
-	log "github.com/inconshreveable/log15"
 	"github.com/leelynne/sshcertifier/api"
+	"golang.org/x/oauth2"
 )
 
 const loggerCtxKey = "logger"
@@ -19,6 +20,10 @@ func (sc *SSHCertifier) getMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/certify/user", sc.loggerMiddleware(
 		http.HandlerFunc(sc.handleCertifyUser)))
+	mux.Handle("/oauth/init", sc.loggerMiddleware(
+		http.HandlerFunc(sc.handleOauthInit)))
+	mux.Handle("/hub/oauth_callback", sc.loggerMiddleware(
+		http.HandlerFunc(sc.handleOauthCallback)))
 	return mux
 }
 
@@ -30,13 +35,32 @@ func (sc *SSHCertifier) loggerMiddleware(next http.Handler) http.Handler {
 }
 
 func (sc *SSHCertifier) handleCertifyUser(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	splitToken := strings.Split(authHeader, "Bearer")
+	if len(splitToken) != 2 {
+		http.Error(w, "Invalid token", 400)
+		return
+	}
+
+	_ = &oauth2.Token{
+		AccessToken: splitToken[1],
+	}
+
 	reqBytes, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Could not read request", 400)
 		return
 	}
+	_ = r.Header.Get("Authorization")
+	// Validate token
 	certReq := api.CertifyRequest{}
 	err = json.Unmarshal(reqBytes, &certReq)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+
+	sc.logger.Info("oauth done")
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
@@ -55,7 +79,7 @@ func (sc *SSHCertifier) handleCertifyUser(w http.ResponseWriter, r *http.Request
 	buf.WriteString(certReq.User)
 	buf.WriteByte('\n')
 
-	sc.logger.Info("Issuing cert", "user", certReq.User, "serial", cert.Serial)
+	sc.logger.Info("Issuing cert2", "user", certReq.User, "serial", cert.Serial)
 
 	acceptType := r.Header.Get("Accept")
 	var respBytes []byte
@@ -76,6 +100,38 @@ func (sc *SSHCertifier) handleCertifyUser(w http.ResponseWriter, r *http.Request
 	w.Write(respBytes)
 }
 
-func getLogger(ctx context.Context) log.Logger {
-	return nil
+func (sc *SSHCertifier) handleOauthInit(w http.ResponseWriter, r *http.Request) {
+	resp := api.OAuthInitResponse{}
+
+	resp.OAuthURL = sc.oauthConfig.AuthCodeURL("state", oauth2.AccessTypeOnline)
+	resp.SessionID = "testsid123"
+	respBytes, err := json.Marshal(resp)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Write(respBytes)
+
+}
+
+func (sc *SSHCertifier) handleOauthCallback(w http.ResponseWriter, r *http.Request) {
+	_ = r.FormValue("state") // validate
+	code := r.FormValue("code")
+	t, err := sc.oauthConfig.Exchange(context.Background(), code)
+	if err == nil {
+		http.Error(w, "Internal Error", http.StatusInternalServerError)
+		return
+	}
+
+	resp := api.OAuthInitResponse{}
+	// Redirect user to consent page to ask for permission
+	// for the scopes specified above.
+	resp.OAuthURL = sc.oauthConfig.AuthCodeURL("state", oauth2.AccessTypeOnline)
+	respBytes, err := json.Marshal(resp)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Write(respBytes)
+
 }
